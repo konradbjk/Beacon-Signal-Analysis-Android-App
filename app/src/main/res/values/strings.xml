@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Signal Reading App</string>
+    <string name="kontakt_io_api_key">YOUR_API_KEY</string>
+</resources>
