@@ -10,9 +10,14 @@ import android.Manifest;
 import android.app.Activity;
 import android.bluetooth.BluetoothAdapter;
 import android.content.ContentResolver;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
@@ -21,7 +26,9 @@ import android.text.format.DateFormat;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
+import android.widget.CompoundButton;
 import android.widget.EditText;
+import android.widget.Switch;
 import android.widget.Toast;
 
 import com.kontakt.sdk.android.ble.configuration.ActivityCheckConfiguration;
@@ -49,7 +56,7 @@ import java.io.PrintWriter;
 import java.util.Arrays;
 import java.util.List;
 
-public class MainActivity extends AppCompatActivity {
+public class MainActivity extends AppCompatActivity implements SensorEventListener {
 
     private ProximityManager kontaktManager;
     private String TAG = "MyActivity";
@@ -61,6 +68,12 @@ public class MainActivity extends AppCompatActivity {
     private static final String mimeType = "text/csv";
 
     private final static int REQUEST_ENABLE_BT=1;
+
+    // Accelerometer
+    private SensorManager sensorManager;
+    private Sensor sensor;
+    private long lastTime = 0;
+    private float lastX, lastY, lastZ;
 
 
     @Override
@@ -87,11 +100,29 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        final Button creatFileButton = findViewById(R.id.create_file_button);
-        creatFileButton.setOnClickListener(new View.OnClickListener() {
+        final Button createFileButton = findViewById(R.id.create_file_button);
+        createFileButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 createFile();
+            }
+        });
+
+        final Switch bandpass_filter_switch = findViewById(R.id.bandpass_fiter_switch);
+        bandpass_filter_switch.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            @Override
+            public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
+                if (isChecked) {
+                    kontaktManager.filters().iBeaconFilter(distanceFilter);
+                    showToast("BandPass filter activated");
+                }
+            }
+        });
+
+        final Switch accelerometer_switch = findViewById(R.id.accelerometer_switch);
+        accelerometer_switch.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            @Override
+            public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
             }
         });
     }
@@ -120,6 +151,18 @@ public class MainActivity extends AppCompatActivity {
         super.onDestroy();
     }
 
+    @Override
+    protected void onPause() {
+        super.onPause();
+        sensorManager.unregisterListener(this);
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        sensorManager.registerListener(this, sensor, SensorManager.SENSOR_DELAY_NORMAL);
+    }
+
     private void showToast(final String message) {
         runOnUiThread(new Runnable() {
             @Override
@@ -132,8 +175,14 @@ public class MainActivity extends AppCompatActivity {
     public void oneTimeConfiguration() {
         checkPermissions();
         configureProximityManager();
-        //configureIBeaconFilters(distanceFilter);
         createFile();
+
+        // Accelerometer
+        sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
+        assert sensorManager != null;
+        sensor = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
+        sensorManager.registerListener(this, sensor, SensorManager.SENSOR_DELAY_NORMAL);
+
     }
 
     private void checkPermissions() {
@@ -164,18 +213,16 @@ public class MainActivity extends AppCompatActivity {
         kontaktManager.configuration()
                 .activityCheckConfiguration(ActivityCheckConfiguration.create(5000,10000))
                 .deviceUpdateCallbackInterval(1000)
-                .scanMode(ScanMode.BALANCED)
+                .scanMode(ScanMode.LOW_LATENCY)
                 .scanPeriod(ScanPeriod.RANGING);
 
         kontaktManager.setScanStatusListener(createScanStatusListener());
-        kontaktManager.filters().iBeaconFilter(distanceFilter);
         kontaktManager.setIBeaconListener(new SimpleIBeaconListener(){
             @Override
             public void onIBeaconDiscovered(IBeaconDevice ibeacon, IBeaconRegion region) {
                 super.onIBeaconDiscovered(ibeacon, region);
                 stringBuffer.append(DateFormat.format("dd-MM-yyyy-hh:mm:ss", System.currentTimeMillis()).toString()).append(";").append(ibeacon.getUniqueId()).append(";").append(ibeacon.getRssi()).append("\n");
                 Log.d(TAG,"iBeacon discovered: " + ibeacon.getUniqueId()+" " + ibeacon.getRssi());
-
             }
 
             @Override
@@ -214,13 +261,11 @@ public class MainActivity extends AppCompatActivity {
         }
     };
 
-    // Poniższa funkcja zwraca informacje czy można odczytywać i zapisywać dane do pamieci
     public boolean isExternalStorageWritable() {
         String state = Environment.getExternalStorageState();
         return Environment.MEDIA_MOUNTED.equals(state);
     }
 
-    // Poniższa funkcja zwraca informacje czy pamięć jest możliwa do odczytania
     public boolean isExternalStorageReadable() {
         String state = Environment.getExternalStorageState();
         return Environment.MEDIA_MOUNTED.equals(state) ||
@@ -302,5 +347,30 @@ public class MainActivity extends AppCompatActivity {
         stringBuffer.delete(0,stringBuffer.length());
         kontaktManager.stopScanning();
         kontaktManager.disconnect();
+    }
+
+    @Override
+    public void onSensorChanged(SensorEvent event) {
+        Sensor sensor = event.sensor;
+        if (sensor.getType() == Sensor.TYPE_ACCELEROMETER) {
+            float x = event.values[0];
+            float y = event.values[1];
+            float z = event.values[2];
+            long currentTime = System.currentTimeMillis();
+            if ((currentTime - lastTime) > 100) {
+                long diffTime = (currentTime - lastTime);
+                lastTime = currentTime;
+                float speed = Math.abs(x + y + z - lastX - lastY - lastZ)/ diffTime * 10000;
+                Log.d(TAG,"The speed: " + speed);
+                lastX = x;
+                lastY = y;
+                lastZ = z;
+            }
+        }
+    }
+
+    @Override
+    public void onAccuracyChanged(Sensor sensor, int accuracy) {
+
     }
 }
