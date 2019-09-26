@@ -71,9 +71,12 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
     // Accelerometer
     private SensorManager sensorManager;
-    private Sensor sensor;
-    private long lastTime = 0;
+    final float alpha = (float) 0.8;
+    private float lastTime = 0;
     private float lastX, lastY, lastZ;
+    private float gravity_x, gravity_y, gravity_z;
+    boolean accelerometerChecked, stepsChecked;
+    private double steps = 0;
 
 
     @Override
@@ -123,6 +126,15 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         accelerometer_switch.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
             @Override
             public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
+                accelerometerChecked = true;
+            }
+        });
+
+        final Switch steps_switch = findViewById(R.id.steps_switch);
+        steps_switch.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            @Override
+            public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
+                stepsChecked = true;
             }
         });
     }
@@ -160,7 +172,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     @Override
     protected void onResume() {
         super.onResume();
-        sensorManager.registerListener(this, sensor, SensorManager.SENSOR_DELAY_NORMAL);
+        registerSensorListeners();
     }
 
     private void showToast(final String message) {
@@ -175,13 +187,25 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     public void oneTimeConfiguration() {
         checkPermissions();
         configureProximityManager();
-        createFile();
 
-        // Accelerometer
+        // sensors
         sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
         assert sensorManager != null;
-        sensor = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
-        sensorManager.registerListener(this, sensor, SensorManager.SENSOR_DELAY_NORMAL);
+        registerSensorListeners();
+
+
+
+    }
+
+    private void registerSensorListeners() {
+
+        if (accelerometerChecked){
+            sensorManager.registerListener(this, sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER), SensorManager.SENSOR_DELAY_FASTEST);
+        }
+
+        if(stepsChecked){
+            sensorManager.registerListener(this, sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER), SensorManager.SENSOR_DELAY_FASTEST);
+        }
 
     }
 
@@ -221,7 +245,13 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             @Override
             public void onIBeaconDiscovered(IBeaconDevice ibeacon, IBeaconRegion region) {
                 super.onIBeaconDiscovered(ibeacon, region);
-                stringBuffer.append(DateFormat.format("dd-MM-yyyy-hh:mm:ss", System.currentTimeMillis()).toString()).append(";").append(ibeacon.getUniqueId()).append(";").append(ibeacon.getRssi()).append("\n");
+                stringBuffer.append(DateFormat.format("dd-MM-yyyy hh:mm:ss", System.currentTimeMillis()).toString()).append(";")
+                        .append(ibeacon.getUniqueId()).append(";")
+                        .append(lastX).append(";")
+                        .append(lastY).append(";")
+                        .append(lastZ).append(";")
+                        .append(steps).append(";")
+                        .append(ibeacon.getRssi()).append("\n");
                 Log.d(TAG,"iBeacon discovered: " + ibeacon.getUniqueId()+" " + ibeacon.getRssi());
             }
 
@@ -229,7 +259,13 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             public void onIBeaconsUpdated(List<IBeaconDevice> ibeacons, IBeaconRegion region) {
                 super.onIBeaconsUpdated(ibeacons, region);
                 for (IBeaconDevice ibeacon : ibeacons) {
-                    stringBuffer.append(DateFormat.format("dd-MM-yyyy-hh:mm:ss", System.currentTimeMillis()).toString()).append(";").append(ibeacon.getUniqueId()).append(";").append(ibeacon.getRssi()).append("\n");
+                    stringBuffer.append(DateFormat.format("dd-MM-yyyy hh:mm:ss", System.currentTimeMillis()).toString()).append(";")
+                            .append(ibeacon.getUniqueId()).append(";")
+                            .append(lastX).append(";")
+                            .append(lastY).append(";")
+                            .append(lastZ).append(";")
+                            .append(steps).append(";")
+                            .append(ibeacon.getRssi()).append("\n");
                     Log.d(TAG,"iBeacon updated: " + ibeacon.getUniqueId()+" " + ibeacon.getRssi());
                 }
 
@@ -257,7 +293,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private final IBeaconFilter distanceFilter = new IBeaconFilter() {
         @Override
         public boolean apply(IBeaconDevice iBeaconDevice) {
-            return iBeaconDevice.getRssi() < -30 && iBeaconDevice.getRssi() > -100;
+            return iBeaconDevice.getRssi() < -30 && iBeaconDevice.getRssi() > -100 && iBeaconDevice.getUniqueId() != null;
         }
     };
 
@@ -333,6 +369,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     }
 
     private void startScan() {
+        registerSensorListeners();
         kontaktManager.connect(new OnServiceReadyListener() {
             @Override
             public void onServiceReady() {
@@ -352,20 +389,31 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     @Override
     public void onSensorChanged(SensorEvent event) {
         Sensor sensor = event.sensor;
-        if (sensor.getType() == Sensor.TYPE_ACCELEROMETER) {
-            float x = event.values[0];
-            float y = event.values[1];
-            float z = event.values[2];
-            long currentTime = System.currentTimeMillis();
-            if ((currentTime - lastTime) > 100) {
-                long diffTime = (currentTime - lastTime);
-                lastTime = currentTime;
-                float speed = Math.abs(x + y + z - lastX - lastY - lastZ)/ diffTime * 10000;
-                Log.d(TAG,"The speed: " + speed);
-                lastX = x;
-                lastY = y;
-                lastZ = z;
-            }
+        float timestamp = System.currentTimeMillis();
+        final float dT = (timestamp - lastTime);
+
+
+        if (sensor.getType() == Sensor.TYPE_ACCELEROMETER && dT > 50) {
+
+            gravity_x = alpha * gravity_x + (1 - alpha) * event.values[0];
+            gravity_y = alpha * gravity_y + (1 - alpha) * event.values[1];
+            gravity_z = alpha * gravity_z + (1 - alpha) * event.values[2];
+
+            lastX = event.values[0] - gravity_x;
+            lastY = event.values[1] - gravity_y;
+            lastZ = event.values[2] - gravity_z;
+
+            lastTime = timestamp;
+
+            Log.d(TAG, "X: " + lastX + " Y: " + lastY + " Z: " + lastZ);
+        }
+
+        if (sensor.getType() == Sensor.TYPE_STEP_COUNTER && dT > 50) {
+            steps = event.values[0];
+            Log.d(TAG, "Steps: " + steps);
+
+            lastTime = timestamp;
+
         }
     }
 

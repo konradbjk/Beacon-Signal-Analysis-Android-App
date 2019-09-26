@@ -7,11 +7,23 @@
     tools:context=".MainActivity">
 
     <Switch
+        android:id="@+id/steps_switch"
+        android:layout_width="205dp"
+        android:layout_height="28dp"
+        android:layout_marginStart="100dp"
+        android:layout_marginTop="20dp"
+        android:layout_marginEnd="100dp"
+        android:text="Steps"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/accelerometer_switch" />
+
+    <Switch
         android:id="@+id/accelerometer_switch"
         android:layout_width="205dp"
         android:layout_height="28dp"
         android:layout_marginStart="100dp"
-        android:layout_marginTop="10dp"
+        android:layout_marginTop="20dp"
         android:layout_marginEnd="100dp"
         android:text="Accelerometer"
         app:layout_constraintEnd_toEndOf="parent"
